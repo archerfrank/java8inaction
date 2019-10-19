@@ -638,3 +638,108 @@ Collectors class. These offer three main functionalities:
 3. Partitioning elements
 
 ## REDUCING AND SUMMARIZING
+
+```java
+import static java.util.stream.Collectors.*;
+
+Comparator<Dish> dishCaloriesComparator =
+    Comparator.comparingInt(Dish::getCalories);
+
+Optional<Dish> mostCalorieDish =
+    menu.stream()
+        .collect(maxBy(dishCaloriesComparator));
+
+int totalCalories = menu.stream().collect(summingInt(Dish::getCalories));
+
+IntSummaryStatistics menuStatistics =
+        menu.stream().collect(summarizingInt(Dish::getCalories));
+```
+
+you can count the elements in the menu and obtain the sum, average, maximum, and minimum of the calories contained in each dish with a single summarizing operation 
+
+IntSummaryStatistics{count=9, sum=4300, min=120,
+                     average=477.777778, max=800}
+
+## Joining Strings
+
+**joining** factory method concatenates into a single string all strings resulting from invoking the toString method
+
+```java
+String shortMenu = menu.stream().map(Dish::getName).collect(joining());
+
+String shortMenu = menu.stream().map(Dish::getName).collect(joining(", "));
+```
+
+## Reducing 
+
+```java
+int totalCalories = menu.stream().collect(reducing(                                   0, Dish::getCalories, (i, j) -> i + j));
+```
+
+1. The first argument is the starting value of the reduction operation and will also be the value returned in the case of a stream with no elements, so clearly 0 is the appropriate value in the case of a numeric sum.
+2. The second argument is the same function you used in section 6.2.2 to transform a dish into an int representing its calorie content.
+3. The third argument is a BinaryOperator that aggregates two items into a single value of the same type. Here, it just sums two ints.
+
+Similarly, you could find the highest-calorie dish using the one-argument version of reducing as follows:
+
+```java
+Optional<Dish> mostCalorieDish =
+    menu.stream().collect(reducing(
+        (d1, d2) -> d1.getCalories() > d2.getCalories() ? d1 : d2));
+```
+
+You can think of the collector created with the one-argument reducing factory method as a particular case of the three-argument method, which uses the first item in the stream as a starting point and an identity function (that is, a function doing nothing more than returning its input argument as is) as a transformation function. 
+
+## Collect vs. reduce
+This solution has two problems: a semantic one and a practical one. The semantic problem lies in the fact that the reduce method is meant to combine two values and produce a new one; it’s an immutable reduction. In contrast, the collect method is designed to mutate a container to accumulate the result it’s supposed to produce.
+
+This is the main reason why the collect method is useful for expressing reduction working on a mutable container but crucially in a parallel-friendly way
+
+## GROUPING
+
+```java
+Map<Dish.Type, List<Dish>> dishesByType = menu.stream().collect(groupingBy(Dish::getType));
+
+public enum CaloricLevel { DIET, NORMAL, FAT }
+
+Map<CaloricLevel, List<Dish>> dishesByCaloricLevel = menu.stream().collect( groupingBy(dish -> {                
+    if (dish.getCalories() <= 400) return CaloricLevel.DIET;              else if (dish.getCalories() <= 700) return    CaloricLevel.NORMAL; 
+    else return CaloricLevel.FAT;         
+    } ));
+```
+
+So to perform a two-level grouping, you can pass an inner groupingBy to the outer groupingBy, defining a second-level criterion to classify the stream’s items,
+
+![](imgs/135fig01_alt.jpg)
+
+### Collecting data in subgroups
+more generally, the second collector passed to the first         groupingBy can be any type of collector, not just another groupingBy. For instance, it’s possible to count the number of Dishes in the menu for each type, by passing the counting collector as a second argument to the groupingBy collector
+
+```java
+Map<Dish.Type, Long> typesCount = menu.stream().collect(                    groupingBy(Dish::getType, counting()));
+```
+
+groupingBy(f), where f is the classification function, is in reality just shorthand for groupingBy(f, toList())
+
+To give another example, you could rework the collector you already used to find the highest-calorie dish in the menu to achieve         a similar result, but now classified by the type of dish:
+
+```java
+Map<Dish.Type, Optional<Dish>> mostCaloricByType = menu.stream().collect(groupingBy(Dish::getType, maxBy(comparingInt(Dish::getCalories))));
+```
+
+More generally, the collector passed as second argument to the groupingBy factory method will be used to perform a further reduction operation on all the elements in the stream classified into the same group.
+
+```java
+Map<Dish.Type, Integer> totalCaloriesByType =
+               menu.stream().collect(groupingBy(Dish::getType,
+                        summingInt(Dish::getCalories)));
+```
+
+the **mapping** method. This method takes two arguments: a function transforming the elements in a stream and a further collector accumulating         the objects resulting from this transformation. Its purpose is to adapt a collector accepting elements of a given type to         one working on objects of a different type, by applying a mapping function to each input element before accumulating them.
+
+```java
+Map<Dish.Type, Set<CaloricLevel>> caloricLevelsByType =menu.stream().collect(   groupingBy(Dish::getType, mapping(    dish -> { if (dish.getCalories() <= 400) return CaloricLevel.DIET;            else if (dish.getCalories() <= 700) return CaloricLevel.NORMAL;          else return CaloricLevel.FAT; },    toSet() )));
+```
+
+
+
