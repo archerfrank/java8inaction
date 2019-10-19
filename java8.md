@@ -548,3 +548,93 @@ public class Finding{
 You may wonder why we have both **findFirst** and **findAny**. The answer is parallelism. Finding the first element is more constraining in parallel. If you don’t care about which element            is returned, use findAny because it’s less constraining when using parallel streams.
 
 ## REDUCING
+
+### Summing the elements
+
+```java
+int sum = numbers.stream().reduce(0, (a, b) -> a + b);
+```
+
+reduce takes two arguments:                                          
+1. An initial value, here 0.
+2. A BinaryOperator<T> to combine two elements and produce a new value; here you use the lambda (a, b) -> a + b.
+![](imgs/05fig08_alt.jpg)
+There’s also an overloaded variant of reduce that doesn’t take an initial value, but it returns an Optional object:
+```java
+Optional<Integer> sum = numbers.stream().reduce((a, b) -> (a + b));
+Optional<Integer> max = numbers.stream().reduce(Integer::max);
+Optional<Integer> min = numbers.stream().reduce(Integer::min);
+```
+Consider the case when the stream contains no elements.
+
+## Numeric streams
+you’ll use to convert a stream to a specialized version are mapToInt, mapToDouble, and mapToLong. 
+![](imgs/113fig01_alt.jpg)
+IntStream also supports other convenience methods such as max, min, and average.
+
+To convert from a primitive stream to a general stream (each int will be boxed to an Integer) you can use the method boxed as follows:
+![](imgs/113fig02_alt.jpg)
+
+## Numeric ranges
+
+Java 8 introduces two static methods available on IntStream and LongStream to help generate such ranges: range and rangeClosed.
+
+![](imgs/114fig01_alt.jpg)
+
+In practice.
+```java
+Stream<int[]> pythagoreanTriples =    IntStream.rangeClosed(1, 100).boxed()             .flatMap(a ->                IntStream.rangeClosed(a, 100)                         .filter(b -> Math.sqrt(a*a + b*b) % 1 == 0)                         .mapToObj(b ->                            new int[]{a, b, (int)Math.sqrt(a * a + b * b)})                     );
+```
+
+
+## Building streams
+
+### Streams from values
+```java
+Stream<String> stream = Stream.of("Java 8 ", "Lambdas ", "In ", "Action");
+stream.map(String::toUpperCase).forEach(System.out::println);
+Stream<String> emptyStream = Stream.empty();
+```
+
+### Streams from arrays
+![](imgs/117fig02.jpg)
+
+### Streams from files
+![](imgs/118fig01_alt.jpg)
+
+## Streams from functions: creating infinite streams!
+The Streams API provides two static methods to generate a stream from a function: Stream.iterate and Stream.generate. These two operations let you create what we call an infinite stream: a stream that doesn’t have a fixed size like when you create a stream from a fixed collection. Streams produced by iterate and generate create values on demand given a function and can therefore calculate values forever! It’s generally sensible to use limit(n) on such streams to avoid printing an infinite number of values.
+
+### Iterate
+```java
+Stream.iterate(0, n -> n + 2)
+      .limit(10)
+      .forEach(System.out::println);
+```
+
+In general, you should use iterate when you need to produce a sequence of successive values
+
+### Generate
+Similarly to the method iterate, the method generate lets you produce an infinite stream of values computed on demand. But generate doesn’t apply successively a function on each new produced value. It takes a lambda of type Supplier<T> to provide new values. 
+
+### Iterate
+```java
+Stream.generate(Math::random)
+      .limit(5)
+      .forEach(System.out::println);
+
+IntStream ones = IntStream.generate(() -> 1);
+```
+
+## Summary
+Some operations such as filter and map are stateless; they don’t store any state. Some operations such as reduce store state to calculate a value. Some operations such as sorted and distinct also store state because they need to buffer all the elements of a stream before returning a new stream. Such operations            are called stateful operations.
+
+# Chapter 6. Collecting data with streams
+
+Collectors class. These offer three main functionalities:
+
+1. Reducing and summarizing stream elements to a single value
+2. Grouping elements
+3. Partitioning elements
+
+## REDUCING AND SUMMARIZING
