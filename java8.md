@@ -741,5 +741,26 @@ the **mapping** method. This method takes two arguments: a function transforming
 Map<Dish.Type, Set<CaloricLevel>> caloricLevelsByType =menu.stream().collect(   groupingBy(Dish::getType, mapping(    dish -> { if (dish.getCalories() <= 400) return CaloricLevel.DIET;            else if (dish.getCalories() <= 700) return CaloricLevel.NORMAL;          else return CaloricLevel.FAT; },    toSet() )));
 ```
 
+But by using toCollection, you can have more control. For example, you can ask for a HashSet by passing a constructor reference to it:
+```java
+Map<Dish.Type, Set<CaloricLevel>> caloricLevelsByType =menu.stream().collect(   groupingBy(Dish::getType, mapping(    dish -> { if (dish.getCalories() <= 400) return CaloricLevel.DIET;            else if (dish.getCalories() <= 700) return CaloricLevel.NORMAL;          else return CaloricLevel.FAT; },    toCollection(HashSet::new) )));
+```
+## PARTITIONING
 
+Partitioning is a special case of grouping: having a predicate (a function returning a boolean), called a partitioning function, as a classification function. 
+
+## Collector interface
+
+Stream has an overloaded collect method accepting the three other functions—supplier, accumulator, and combiner
+![](imgs/150fig01_alt.jpg)
+
+![](imgs/156fig01_alt.jpg)
+
+## SUMMARY
+
+* various recipes (called collectors) for accumulating the elements of a stream            into a summary result.    
+* Predefined collectors include reducing and summarizing stream elements into a single value, such as calculating the minimum,            maximum, or average. Those collectors are summarized in table 6.1.  
+* Predefined collectors let you group elements of a stream with groupingBy and partition elements of a stream with partitioningBy. 
+* Collectors compose effectively to create multilevel groupings, partitions, and reductions.           
+* You can develop your own collectors by implementing the methods defined in the Collector interface
 
