@@ -764,3 +764,779 @@ Stream has an overloaded collect method accepting the three other functions—su
 * Collectors compose effectively to create multilevel groupings, partitions, and reductions.           
 * You can develop your own collectors by implementing the methods defined in the Collector interface
 
+
+# Chapter 7. Parallel data processing and performance
+
+## PARALLEL STREAMS
+
+### Turning a sequential stream into a parallel one
+![](imgs/160fig01_alt.jpg)
+
+ Note that you might think that you could achieve finer-grained control over which operations you want to perform in         parallel and which one sequentially while traversing the stream by combining these two methods.
+ But the last call to parallel or sequential wins and affects the pipeline globally. In this example, the pipeline will be executed in parallel because that’s the last         call in the pipeline.
+
+ Parallel streams internally use the default ForkJoinPool (you’ll learn more about the fork/join framework in section 7.2), which by default has as many threads as you have processors, as returned by Runtime.getRuntime().availableProcessors().
+
+ But you can change the size of this pool using the system property java.util.concurrent.ForkJoinPool.common.parallelism, as in the following example:
+
+ ```java
+ System.setProperty("java.util.concurrent.ForkJoinPool.common.parallelism", "12");
+ ```
+
+### Performance
+
+ Iterate is difficult to divide into independent chunks to execute in parallel. Don't use iterate 
+
+ using the right data structure and then making it work in parallel guarantees the best performance, like rangeClosed
+
+### Use parallel correct
+
+shared mutable state doesn’t play well with parallel streams and with parallel computations in general, below code will always return differnt result
+
+```java
+public static long sideEffectSum(long n) {
+    Accumulator accumulator = new Accumulator();
+    LongStream.rangeClosed(1, n).parallel().forEach(accumulator::add);
+    return accumulator.total;
+}
+
+public class Accumulator {
+    public long total = 0;
+    public void add(long value) { total += value; }
+}
+```
+### Using parallel streams effectively
+
+Watch out for boxing. Automatic boxing and unboxing operations can dramatically hurt performance. Java 8 includes primitive            streams (IntStream, LongStream, and DoubleStream) to avoid such operations, so use them when possible.
+
+Some operations naturally perform worse on a parallel stream than on a sequential stream. In particular, operations such as limit and findFirst that rely on the order of the elements are expensive in a parallel stream.
+
+Take into account how well the data structure underlying the stream decomposes. For instance, an ArrayList can be split much more efficiently than a LinkedList, because the first can be evenly divided without traversing it, as it’s necessary to do with the second. Also, the primitive streams created with the range factory method can be decomposed quickly.
+
+parallel-friendliness of certain stream
+
+| Source          | Decomposability |
+|-----------------|-----------------|
+| ArrayList       | Excellent       |
+| LinkedList      | Poor            |
+| IntStream.range | Excellent       |
+| Stream.iterate  | Poor            |
+| HashSet         | Good            |
+| TreeSet         | Good            |
+
+
+## THE FORK/JOIN FRAMEWORK
+
+```
+if (task is small enough or no longer divisible) {    compute task sequentially
+} else {    
+    split task in two subtasks    
+    call this method recursively possibly       further splitting each subtask    
+    wait for the completion of all subtasks    combine the results of each subtask
+}
+```
+![](imgs/07fig03_alt.jpg)
+
+Note that in a real-world application, it doesn’t make sense to use more than one ForkJoinPool. For this reason, what you typically should do is instantiate it only once and keep this instance in a static field, making it a singleton, so it could be conveniently reused by any part of your software. 
+
+![](imgs/07fig04_alt.jpg)
+
+Note that the availableProcessors method, despite its name, in reality returns the number of available cores, including any virtual ones due to hyperthreading.
+
+
+![](imgs/ch07ex02-0.jpg)
+![](imgs/ch07ex02-1.jpg)
+
+
+More generally, this **work-stealing** algorithm is used to redistribute and balance the tasks among the worker threads in the pool.
+
+![](imgs/07fig05_alt.jpg)
+
+## SPLITERATOR
+
+You’ve seen how a Spliterator can let you to gain control over the policy used to split a data structure. One last notable feature of Spliterators is the possibility of binding the source of the elements to be traversed at the point of first traversal, first split, or         first query for estimated size, rather than at the time of its creation. 
+
+## Summary
+
+Parallel execution of an operation on a set of data, as done by a parallel stream, can provide a performance boost, especially            when the number of elements to be processed is huge or the processing of each single element is particularly time consuming.
+
+From a performance point of view, using the right data structure, for instance, employing primitive streams instead of nonspecialized            ones whenever possible, is almost always more important than trying to parallelize some operations.
+
+# Chapter 8. Refactoring, testing, and debugging
+
+Anonymous classes are allowed to shadow variables from the enclosing class. Lambda expressions can’t (they’ll cause a compile error), as shown in the following code:
+
+![](imgs/187fig02.jpg)
+
+### Improving code flexibility
+
+behavior parameterization
+
+## Refactoring object-oriented design patterns with lambdas
+
+* Strategy 
+
+```java
+package lambdasinaction.chap8;
+
+
+public class StrategyMain {
+
+    public static void main(String[] args) {
+        // old school
+        Validator v1 = new Validator(new IsNumeric());
+        System.out.println(v1.validate("aaaa"));
+        Validator v2 = new Validator(new IsAllLowerCase ());
+        System.out.println(v2.validate("bbbb"));
+
+
+        // with lambdas
+        Validator v3 = new Validator((String s) -> s.matches("\\d+"));
+        System.out.println(v3.validate("aaaa"));
+        Validator v4 = new Validator((String s) -> s.matches("[a-z]+"));
+        System.out.println(v4.validate("bbbb"));
+    }
+
+    interface ValidationStrategy {
+        public boolean execute(String s);
+    }
+
+    static private class IsAllLowerCase implements ValidationStrategy {
+        public boolean execute(String s){
+            return s.matches("[a-z]+");
+        }
+    }
+    static private class IsNumeric implements ValidationStrategy {
+        public boolean execute(String s){
+            return s.matches("\\d+");
+        }
+    }
+
+    static private class Validator{
+        private final ValidationStrategy strategy;
+        public Validator(ValidationStrategy v){
+            this.strategy = v;
+        }
+        public boolean validate(String s){
+            return strategy.execute(s); }
+    }
+}
+
+```
+* Template method     
+```java
+abstract class OnlineBanking {
+
+    public void processCustomer(int id){
+        Customer c = Database.getCustomerWithId(id);
+        makeCustomerHappy(c);
+    }
+
+    abstract void makeCustomerHappy(Customer c);
+
+    public void processCustomer(int id, Consumer<Customer> makeCustomerHappy){
+    Customer c = Database.getCustomerWithId(id);
+    makeCustomerHappy.accept(c);
+}
+
+new OnlineBankingLambda().processCustomer(1337, (Customer c) ->
+     System.out.println("Hello " + c.getName());
+}
+```
+* Observer    
+```java
+package lambdasinaction.chap8;
+
+import java.util.ArrayList;
+import java.util.List;
+
+
+public class ObserverMain {
+
+    public static void main(String[] args) {
+        // old school;
+        Feed f = new Feed();
+        f.registerObserver(new NYTimes());
+        f.registerObserver(new Guardian());
+        f.registerObserver(new LeMonde());
+        f.notifyObservers("The queen said her favourite book is Java 8 in Action!");
+
+        // with lambda
+        Feed feedLambda = new Feed();
+
+        feedLambda.registerObserver((String tweet) -> {
+            if(tweet != null && tweet.contains("money")){
+                System.out.println("Breaking news in NY! " + tweet); }
+        });
+        feedLambda.registerObserver((String tweet) -> {
+            if(tweet != null && tweet.contains("queen")){
+                System.out.println("Yet another news in London... " + tweet); }
+        });
+
+        feedLambda.notifyObservers("Money money money, give me money!");
+
+    }
+
+
+    interface Observer{
+        void inform(String tweet);
+    }
+
+    interface Subject{
+        void registerObserver(Observer o);
+        void notifyObservers(String tweet);
+    }
+
+    static private class NYTimes implements Observer{
+        @Override
+        public void inform(String tweet) {
+            if(tweet != null && tweet.contains("money")){
+                System.out.println("Breaking news in NY!" + tweet);
+            }
+        }
+    }
+
+    static private class Guardian implements Observer{
+        @Override
+        public void inform(String tweet) {
+            if(tweet != null && tweet.contains("queen")){
+                System.out.println("Yet another news in London... " + tweet);
+            }
+        }
+    }
+
+    static private class LeMonde implements Observer{
+        @Override
+        public void inform(String tweet) {
+            if(tweet != null && tweet.contains("wine")){
+                System.out.println("Today cheese, wine and news! " + tweet);
+            }
+        }
+    }
+
+    static private class Feed implements Subject{
+        private final List<Observer> observers = new ArrayList<>();
+        public void registerObserver(Observer o) {
+            this.observers.add(o);
+        }
+        public void notifyObservers(String tweet) {
+            observers.forEach(o -> o.inform(tweet));
+        }
+    }
+
+}
+
+```
+* Chain of responsibility   
+```java
+package lambdasinaction.chap8;
+
+import java.util.function.Function;
+import java.util.function.UnaryOperator;
+
+
+public class ChainOfResponsibilityMain {
+
+    public static void main(String[] args) {
+        ProcessingObject<String> p1 = new HeaderTextProcessing();
+        ProcessingObject<String> p2 = new SpellCheckerProcessing();
+        p1.setSuccessor(p2);
+        String result1 = p1.handle("Aren't labdas really sexy?!!");
+        System.out.println(result1);
+
+// lambda
+        UnaryOperator<String> headerProcessing =
+                (String text) -> "From Raoul, Mario and Alan: " + text;
+        UnaryOperator<String> spellCheckerProcessing =
+                (String text) -> text.replaceAll("labda", "lambda");
+        Function<String, String> pipeline = headerProcessing.andThen(spellCheckerProcessing);
+        String result2 = pipeline.apply("Aren't labdas really sexy?!!");
+        System.out.println(result2);
+    }
+
+    static private abstract class ProcessingObject<T> {
+        protected ProcessingObject<T> successor;
+
+        public void setSuccessor(ProcessingObject<T> successor) {
+            this.successor = successor;
+        }
+
+        public T handle(T input) {
+            T r = handleWork(input);
+            if (successor != null) {
+                return successor.handle(r);
+            }
+            return r;
+        }
+
+        abstract protected T handleWork(T input);
+    }
+
+    static private class HeaderTextProcessing
+            extends ProcessingObject<String> {
+        public String handleWork(String text) {
+            return "From Raoul, Mario and Alan: " + text;
+        }
+    }
+
+    static private class SpellCheckerProcessing
+            extends ProcessingObject<String> {
+        public String handleWork(String text) {
+            return text.replaceAll("labda", "lambda");
+        }
+    }
+}
+
+
+
+```
+* Factory
+The factory design pattern lets you create objects without exposing the instantiation logic to the client.
+```java
+package lambdasinaction.chap8;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.function.Supplier;
+
+
+public class FactoryMain {
+
+    public static void main(String[] args) {
+        Product p1 = ProductFactory.createProduct("loan");
+
+        Supplier<Product> loanSupplier = Loan::new;
+        Product p2 = loanSupplier.get();
+
+        Product p3 = ProductFactory.createProductLambda("loan");
+
+    }
+
+    static private class ProductFactory {
+        public static Product createProduct(String name){
+            switch(name){
+                case "loan": return new Loan();
+                case "stock": return new Stock();
+                case "bond": return new Bond();
+                default: throw new RuntimeException("No such product " + name);
+            }
+        }
+
+        public static Product createProductLambda(String name){
+            Supplier<Product> p = map.get(name);
+            if(p != null) return p.get();
+            throw new RuntimeException("No such product " + name);
+        }
+    }
+
+    static private interface Product {}
+    static private class Loan implements Product {}
+    static private class Stock implements Product {}
+    static private class Bond implements Product {}
+
+    final static private Map<String, Supplier<Product>> map = new HashMap<>();
+    static {
+        map.put("loan", Loan::new);
+        map.put("stock", Stock::new);
+        map.put("bond", Bond::new);
+    }
+}
+
+```
+## Debug
+
+In general, keep in mind that stack traces involving lambda expressions may be more difficult to understand. 
+
+* Logging
+
+Stream operation peek can help
+
+```java
+public class Peek {
+
+    public static void main(String[] args) {
+
+        List<Integer> result = Stream.of(2, 3, 4, 5)
+                .peek(x -> System.out.println("taking from stream: " + x)).map(x -> x + 17)
+                .peek(x -> System.out.println("after map: " + x)).filter(x -> x % 2 == 0)
+                .peek(x -> System.out.println("after filter: " + x)).limit(3)
+                .peek(x -> System.out.println("after limit: " + x)).collect(toList());
+    }
+}
+
+
+from stream: 2
+after map: 19
+from stream: 3
+after map: 20
+after filter: 20
+after limit: 20
+from stream: 4
+after map: 21
+from stream: 5
+after map: 22
+after filter: 22
+after limit: 22
+```
+
+
+# Chapter 9. Default methods
+
+* Abstract classes vs. interfaces in Java 8
+So what’s the difference between an abstract class and an interface? They both can contain abstract methods and methods with a body.          
+1. First, a class can extend only from one abstract class, but a class can implement multiple interfaces.                           
+2. Second, an abstract class can enforce a common state through instance variables (fields). An interface can’t have instance            variables.
+
+* Interface conflict resovle
+
+![](imgs/07fig05_alt.jpg)
+
+There are three rules to follow when a class inherits a method with the same signature from multiple places (such as another class or interface):                                       
+1.  Classes always win. A method declaration in the class or a superclass takes priority over any default method declaration.                                                
+2.  Otherwise, sub-interfaces win: the method with the same signature in the most specific default-providing interface is selected.(If B extends A, B is more specific than A).                                    
+3.  Finally, if the choice is still ambiguous, the class inheriting from multiple interfaces has to explicitly select which default method implementation to use by overriding it and calling the desired method explicitly.
+* Rule 2
+
+```java 
+package lambdasinaction.chap9;
+
+public class MostSpecific{
+
+    public static void main(String... args) {
+        new C().hello(); // pring B
+        new E().hello(); // print B  rule 1 fails, no implementation in the class.
+        new G().hello(); // print F  rule 1
+    }
+
+    static interface A{
+        public default void hello() {
+            System.out.println("Hello from A");
+        }
+    }
+
+    static interface B extends A{
+        public default void hello() {
+            System.out.println("Hello from B");
+        }
+    }
+
+    static class C implements B, A {}
+
+    static class D implements A{}
+
+    static class E extends D implements B, A{}
+
+    static class F implements B, A {
+        public void hello() {
+            System.out.println("Hello from F");
+        }
+    }
+
+    static class G extends F implements B, A{}
+
+}
+
+```
+
+* Rule 3.
+```java
+package lambdasinaction.chap9;
+
+public class Ambiguous{
+
+    public static void main(String... args) {
+        new C().hello();
+    }
+
+    static interface A{
+        public default void hello() {
+            System.out.println("Hello from A");
+        }
+    }
+
+    static interface B {
+        public default void hello() {
+            System.out.println("Hello from B");
+        }
+    }
+
+    static class C implements B, A {
+        public void hello(){
+            A.super.hello();
+        }
+    }
+}
+
+```
+
+# Chapter 10. Using Optional as a better alternative to null
+
+you can get hold of an empty optional object using the static factory method Optional.empty:
+
+```java
+Optional<Car> optCar = Optional.empty();
+```
+
+You can also create an optional from a non-null value with the static factory method Optional.of:
+
+```java
+Optional<Car> optCar = Optional.of(car);
+```
+
+Finally, by using the static factory method Optional.ofNullable, you can create an Optional object that may hold a null value:
+
+```java
+Optional<Car> optCar = Optional.ofNullable(car);
+```
+
+A common pattern is to extract information from an object. Optional supports a map method for this pattern. It works as follows 
+```java
+String name = null;
+if(insurance != null){
+    name = insurance.getName();
+}
+
+Optional<Insurance> optInsurance = Optional.ofNullable(insurance);
+Optional<String> name = optInsurance.map(Insurance::getName);
+```
+
+Chaining Optional objects with flatMap
+![](imgs/10fig05_alt.jpg)
+
+![](imgs/234fig01_alt.jpg)
+
+Java Language Architect Brian Goetz clearly stated the purpose of Optional is to support the optional-return idiom only.
+
+Because the Optional class wasn’t intended for use as a field type, it also **doesn’t implement the Serializable interface**. For this reason, using Optionals in your domain model could break applications using tools or frameworks that require a serializable model to work.
+
+Alternatively, if you need to have a serializable domain model, we suggest you at least provide a method allowing access also to any possibly missing value as an optional, as in the following example:
+
+```java
+public class Person {
+    private Car car;
+    public Optional<Car> getCarAsOptional() {
+        return Optional.ofNullable(car);
+    }
+}
+```
+
+The analogies between the Optional class and the Stream interface aren’t limited to the map and flatMap methods. There’s a third method, filter, that behaves in a similar fashion on both classes.
+
+ If you remember that you can think of an optional as a stream containing at most a single element, the behavior of         this method should be pretty clear. 
+
+ ```java
+ public String getCarInsuranceName(Optional<Person> person, int minAge) {
+    return person.filter(p -> p.getAge() >= minAge)
+                 .flatMap(Person::getCar)
+                 .flatMap(Car::getInsurance)
+                 .map(Insurance::getName)
+                 .orElse("Unknown");
+}
+ ```
+
+ summarizes the methods of the Optional class
+
+| Method      | Description                                                                                                                                             |
+|-------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
+| empty       | Returns an empty Optional instance                                                                                                                      |
+| filter      | If the value is present and matches the given predicate, returns this Optional; otherwise returns the empty one                                         |
+| flatMap     | If a value is present, returns the Optional resulting from the application of the provided mapping function to it; otherwise returns the empty Optional |
+| get         | Returns the value wrapped by this Optional if present; otherwise throws a NoSuchElementException                                                        |
+| ifPresent   | If a value is present, invokes the specified consumer with the value; otherwise does nothing                                                            |
+| isPresent   | Returns true if there is a value present; otherwise false                                                                                               |
+| map         | If a value is present, applies the provided mapping function to it                                                                                      |
+| of          | Returns an Optional wrapping the given value or throws a NullPointerException if this value is null                                                     |
+| ofNullable  | Returns an Optional wrapping the given value or the empty Optional if this value is null                                                                |
+| orElse      | Returns the value if present or the given default value otherwise                                                                                       |
+| orElseGet   | Returns the value if present or the one provided by the given Supplier otherwise                                                                        |
+| orElseThrow | Returns the value if present or throws the exception created by the given Supplier otherwise                                                            |
+
+
+Note that, like streams, optionals also have primitive counterparts—OptionalInt, OptionalLong, and OptionalDouble. But we discourage using primitive optionals because they lack the map, flatMap, and filter methods.
+
+## SUMMARY
+
+* You can create Optional objects with the static factory methods Optional.empty, Optional.of, and Optional.ofNullable.
+
+* The Optional class supports many methods such as map, flatMap, and filter, which are conceptually similar to the methods of a stream.
+
+# Chapter 11. CompletableFuture: composable asynchronous programming
+
+In recent years, two trends are obliging us to rethink the way we write software. The first trend is related to the hardware on which we run our applications, and the second trend concerns how applications are structured and particularly how they interact with each other. 
+
+when your main goal is to perform several loosely related tasks on the same CPUs, keeping their cores as busy as possible to maximize the throughput of your application, what you really want to achieve is to avoid blocking a thread and wasting its computational resources while waiting, potentially for quite a while, for a result from a remote service or from interrogating a database. 
+
+## Using CompletableFutures to build an asynchronous application
+
+delegating its remaining computation to a            thread, which runs asynchronously to the caller—hence the phrase non-blocking call. 
+
+![](imgs/251fig01_alt.jpg)
+
+Propagating an error inside the CompletableFuture
+
+![](imgs/253fig01_alt.jpg)
+
+```
+java.util.concurrent.ExecutionException: java.lang.RuntimeException: product not available
+    at java.util.concurrent.CompletableFuture.get(CompletableFuture.java:2237)
+    at lambdasinaction.chap11.AsyncShopClient.main(AsyncShopClient.java:14)
+    ... 5 more
+Caused by: java.lang.RuntimeException: product not available
+    at lambdasinaction.chap11.AsyncShop.calculatePrice(AsyncShop.java:36)
+    at lambdasinaction.chap11.AsyncShop.lambda$getPrice$0(AsyncShop.java:23)
+    at lambdasinaction.chap11.AsyncShop$$Lambda$1/24071475.run(Unknown Source)
+    at java.lang.Thread.run(Thread.java:744)    
+```
+
+CompletableFuture class itself comes with lots of handy factory methods that can make this process far easier and less verbose
+
+```java
+public Future<Double> getPriceAsync(String product) {
+    return CompletableFuture.supplyAsync(() -> calculatePrice(product));
+}
+
+```
+
+## Make your code non-blocking
+Below is the normal code
+```java
+public List<String> findPrices(String product) {
+    return shops.stream()
+       .map(shop -> String.format("%s price is %.2f",
+                                  shop.getName(), shop.getPrice(product)))
+       .collect(toList());
+}
+```
+
+Convert to non blocking.
+
+```java
+List<CompletableFuture<String>> priceFutures =
+        shops.stream()
+        .map(shop -> CompletableFuture.supplyAsync(
+             () -> String.format("%s price is %.2f",
+             shop.getName(), shop.getPrice(product))))
+        .collect(toList());
+```
+
+Note that the join method of the CompletableFuture class has the same meaning as the get method also declared in the Future interface, with the only difference being that join doesn’t throw any checked exception. By using it you don’t have to bloat the lambda expression passed to this second map with a try/catch block. Putting everything together, you can rewrite the findPrices method as follows.
+
+![](imgs/257fig01_alt.jpg)
+
+Note that you use two separate stream pipelines, instead of putting the two map operations one after the other in the same stream-processing pipeline—and for a very good reason. Given the lazy nature of         intermediate stream operations, if you had processed the stream in a single pipeline, you would have succeeded only in executing         all the requests to different shops synchronously and sequentially.
+
+![](imgs/11fig04_alt.jpg)
+
+The parallel stream version performs so well only because it can run four tasks in parallel, so it’s able to allocate exactly one thread for each shop. But what happens if you decide to add a fifth shop to the list of shops crawled by your best-price-finder application? Not surprisingly, now the sequential version requires just a bit more than 5 seconds to run.
+![](imgs/258fig01_alt.jpg)
+
+
+Unfortunately, the parallel stream version will also now require a whole second more than before, because all four threads it can run in parallel (available in the common thread pool) are now busy with the first four shops. The fifth query will have to wait for the completion of one of the former operations to free up a thread, as shown here:
+
+![](imgs/258fig02_alt.jpg)
+
+The CompletableFuture version seems just a bit faster than the one using parallel stream. But this last version isn’t satisfying either. For instance,         if you try to run your code with nine shops, the parallel stream version takes 3143 milliseconds, whereas the CompletableFuture one requires 3009 milliseconds. They look equivalent and for a very good reason: they both internally use the same common pool that by default has a fixed number of threads equal to the one returned by Runtime.getRuntime() .availableProcessors(). Nevertheless, CompletableFutures have an advantage because, in contrast to what’s offered by the parallel Streams API, they allow you to specify a different Executor to submit their tasks to. 
+![](imgs/259fig01_alt.jpg)
+
+## Using a custom Executor
+Goetz suggests that the right pool size to approximate a desired CPU utilization rate can be calculated with the following formula:
+
+Nthreads = NCPU * UCPU * (1 + W/C)
+
+where
+
+NCPU is the number of cores, available through Runtime.getRuntime().availableProcessors()
+UCPU is the target CPU utilization (between 0 and 1), and
+W/C is the ratio of wait time to compute time
+
+The application is spending about the 99% of the time waiting for the shops’ responses, so you could estimate a W/C ratio of 100. This means that if your target is 100% CPU utilization, you should have a pool with 400 threads. 
+
+you need to set up an Executor with a fixed number of threads equal to the number of shops you have to query, so there will be exactly one thread for each         shop. But you must also set an upper limit of 100 threads in order to avoid a server crash for a larger number of shops, as         shown in the following listing.
+![](imgs/260fig01_alt.jpg)
+
+Note that you’re creating a pool made of daemon threads. A Java program can’t terminate or exit while a normal thread is executing, so a leftover thread waiting for a never-satisfiable         event causes problems. By contrast, marking a thread as a daemon means it can be killed on program termination. There’s no         performance difference. You can now pass the new Executor as the second argument of the supplyAsync factory method. For example, you should now create the CompletableFuture retrieving the price of the requested product from a given shop as follows:
+
+```java
+CompletableFuture.supplyAsync(() -> shop.getName() + "price is " + shop.getPrice(product), executor);
+```
+
+
+After this improvement, the solution using the CompletableFutures takes only 1021 ms to process five shops and 1022 ms to process nine. In general this trend carries on until the number of shops reaches that threshold of 400 we calculated earlier. 
+
+## Parallelism—via Streams or CompletableFutures
+
+You’ve now seen two different ways to do parallel computing on a collection: either convert it to a parallel stream and use operations like map on it, or iterate over the collection and spawn operations within a CompletableFuture. 
+
+Our advice for using these APIs is as follows:   
+* If you’re doing computation-heavy operations with no I/O, then the Stream interface gives the simplest implementation and one likely to be the most efficient (if all threads are compute-bound, then               there’s no point in having more threads than processor cores).    
+
+* On the other hand, if your parallel units of work involve waiting for I/O (including network connections), then CompletableFutures give more flexibility and the ability to match the number of threads to the wait/computer, or W/C, ratio as discussed previously.               
+Another reason to avoid using parallel streams when I/O waits are involved in the stream-processing pipeline is that the laziness of streams can make it harder to reason about when the waits actually happen.
+
+## Pipelining asynchronous tasks
+
+The desired result is obtained by pipelining three map operations on the stream of shops:
+
+* The first operation transforms each shop into a String that encodes the price and discount code of the requested product for that shop.
+* The second operation parses those Strings, converting each of them in a Quote object.
+* Finally, the third one contacts the remote Discount service that will calculate the final discounted price and return another String containing the name of the shop with that price.
+![](imgs/263fig02_alt.jpg)
+
+Composing synchronous and asynchronous operations
+
+![](imgs/264fig01_alt.jpg)
+
+Things look a bit more complex this time, so try to understand what’s going on here, step by step. The sequence of these three transformations is depicted in below figure
+
+![](imgs/11fig05.jpg)
+
+Note that using the thenApply method doesn’t block your code until the Completable-Future on which you’re invoking it is **completed**. This means that when the Completable-Future finally completes, you want to transform the value it contains using the lambda expression passed to the then-Apply method, thus transforming each Completable-Future<String> in the stream into a corresponding CompletableFuture<Quote>. 
+
+Third map, as you did with the first invocation of supplyAsync with getPrice, you pass this operation as a lambda expression to the supplyAsync factory method, which will return another CompletableFuture. At this point you have two asynchronous operations, modeled with two distinct CompletableFutures, that you want to perform in a cascade
+
+The Java 8 CompletableFutures API provides the thenCompose method specifically for this purpose, allowing you to pipeline two asynchronous operations, passing the result of the first operation to the second operation **when it becomes available**. In other words, you can compose two CompletableFutures by invoking the thenCompose method on the first CompletableFuture and passing to it a **Function**. This Function has as argument the value returned by that first CompletableFuture when it completes, and it returns a second CompletableFuture that uses the result of the first as input for its computation.
+
+The thenCompose method you used , like other methods of the Completable-Future class, also has a variant with an **Async** suffix, **thenComposeAsync**. In general, a method without the Async suffix in its name executes its task in the same thread as the previous task, whereas a method terminating with Async always submits the succeeding task to the thread pool, so each of the tasks can be handled by a different thread. 
+
+## Combining two CompletableFutures—dependent and independent
+
+Another frequently occurring case is where you need to combine the results of the operations performed by two completely independent CompletableFutures, and you don’t want to wait for the first to complete before starting on the second.
+
+In situations like this, use the **thenCombine** method; this takes as second argument a **BiFunction**, which defines how the results of the two CompletableFutures are to be combined when they both become available. Just like thenCompose, the thenCombine method also comes with an Async variant. In this case, using the **thenCombineAsync** method will cause the combination operation defined by the BiFunction to be submitted to the thread pool and then executed asynchronously in a separate task.
+
+
+Combining two independent CompletableFutures
+![](imgs/267fig01_alt.jpg)
+
+ Below shows how the different tasks created in listing 11.17 are executed on the different threads of the pool and how their results are combined
+![](imgs/11fig06_alt.jpg)
+
+At this point, you add a fourth map operation on the Stream returned by the findPricesStream method to the three already performed inside that method. This new operation simply registers an action on each CompletableFuture; this action consumes the value of the CompletableFuture as soon as it completes. The Java 8 CompletableFuture API provides this feature via the thenAccept method, which take as argument a Consumer of the value with which it completes.
+
+```java
+findPricesStream("myPhone").map(f -> f.thenAccept(System.out::println));
+```
+the thenAccept method also has an Async variant named thenAcceptAsync
+
+Because the thenAccept method already specifies how to consume the result produced by the CompletableFuture when it becomes available, it returns a Completable-Future<Void>. As a result, the map operation will return a Stream-<Completable-Future<Void>>. There’s not much you can do on a Completable-Future<Void> except wait for its completion, but this is exactly what you need. 
+
+```java
+CompletableFuture[] futures = findPricesStream("myPhone")        .map(f -> f.thenAccept(System.out::println)).toArray(size -> new CompletableFuture[size]);
+CompletableFuture.allOf(futures).join();
+```
+
+The allOf factory method takes as input an array of CompletableFutures and returns a CompletableFuture<Void> that’s completed only when all the CompletableFutures passed have completed. 
+
+This means that invoking join on the CompletableFuture returned by the allOf method provides an easy way to wait for the completion of all the CompletableFutures in the original stream.
+
+Conversely, in other applications you may wish to wait for the completion of only one of the CompletableFutures in an array, perhaps if you’re consulting two currency-exchange servers and are happy to take the result of the first to         respond. In this case, you can similarly use the anyOf factory method.
+
+```java
+long start = System.nanoTime();
+
+CompletableFuture[] futures = findPricesStream("myPhone27S").map(f -> f.thenAccept(s -> System.out.println(s + " (done in " +   ((System.nanoTime() - start) / 1_000_000) + " msecs)"))).toArray(size -> new CompletableFuture[size]);
+
+CompletableFuture.allOf(futures).join();
+
+System.out.println("All shops have now responded in "                   + ((System.nanoTime() - start) / 1_000_000) + " msecs");
+```
