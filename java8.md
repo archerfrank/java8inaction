@@ -315,7 +315,7 @@ List<String> str = Arrays.asList("a","b","A","B");
 str.sort(String::compareToIgnoreCase);
 ```
 
-In practice
+## In practice
 
 ```java
     import static java.util.Comparator.comparing;
@@ -1540,3 +1540,229 @@ CompletableFuture.allOf(futures).join();
 
 System.out.println("All shops have now responded in "                   + ((System.nanoTime() - start) / 1_000_000) + " msecs");
 ```
+
+# Chapter 13. Thinking functionally
+
+1.  Shared mutable data structures make it harder to track changes in different parts of your program.
+
+2. function or method can mutate only local variables.
+
+3. To be regarded as functional style, a function or method shouldn’t throw any exceptions.
+
+how might you express functions like division without using exceptions? The answer is to use types like Optional<T>: instead of sqrt having signature “double sqrt(double) but may raise an exception,” it would have signature "Optional<Double> sqrt(double)"—either it returns a value that represents success or it indicates in its return value that it couldn’t perform the requested         operation
+
+4. Finally, to be regarded as functional, your function or method should call only those side-effecting library functions for         which you can hide their nonfunctional behavior 
+
+## SUMMARY
+
+* Reducing shared mutable data structures can help you maintain and debug your programs in the long term.
+
+* Functional-style programming promotes side-effect-free methods and declarative programming.                                       
+* Function-style methods are characterized only by their input arguments and their output result.                                       
+* A function is referentially transparent if it always returns the same result value when called with the same argument value.   
+* Iterative constructs such as while loops can be replaced by recursion.                                   
+* Tail recursion may be a better practice than classic recursion in Java because it opens the way to eventual compiler optimization.
+
+#   Chapter 14. Functional programming techniques
+
+## Higher-order functions
+
+Functions (like Comparator.comparing) that can do at least one of the following are called higher-order functions within the functional programming community:                                          
+1. Take one or more functions as parameter       
+2. Return a function as result
+
+So far we’ve mainly used the fact that function values are first class only in order to pass them to Java 8 stream-processing operations (as in chapters 4–7) and to achieve the very similar effect of behavior parameterization when we passed Apple::isGreen-Apple as a function value to filterApples in chapters 1 and 2. But this was just a start. Another interesting example was the use of the static method **Comparator.comparing**, which takes a function as parameter and returns another function (a Comparator), as illustrated in the following code 
+
+## Currying
+For example, the formula to convert Celsius to Fahrenheit is CtoF(x) = x*9/5 + 32.
+
+```java
+static double converter(double x, double f, double b) {
+    return x * f + b;
+}
+```
+
+Here’s an easy way to benefit from the existing logic while tailoring the converter for particular applications. You can define a “factory” that manufactures one-argument conversion functions to exemplify the idea of currying. Here it is:
+
+```java
+static DoubleUnaryOperator curriedConverter(double f, double b){
+    return (double x) -> x * f + b;
+}
+
+DoubleUnaryOperator convertCtoF = curriedConverter(9.0/5, 32);DoubleUnaryOperator convertUSDtoGBP = curriedConverter(0.6, 0);DoubleUnaryOperator convertKmtoMi = curriedConverter(0.6214, 0);
+
+double gbp = convertUSDtoGBP.applyAsDouble(1000);
+```
+
+ Instead of passing all the arguments x, f, and b all at once to the converter method, you only ask for the arguments f and b and return another function, which when given an argument x returns x * f + b.
+
+ Currying is a technique where a function f of two arguments (x and y, say) is seen instead as a function g of one argument that returns a function also of one argument. The value returned by the latter function is the same as the value of the original function, that is, f(x,y) = (g(x))(y).                           
+ Of course, this generalizes: you can curry a six-argument function to first take arguments numbered 2, 4, and 6 returning a function taking argument 5, which returns a function taking the remaining arguments, 1 and 3.
+
+ ## PERSISTENT DATA STRUCTURES
+
+ Now suppose you have separate TrainJourney objects representing a journey from X to Y and from Y to Z. You may wish to create one journey that links the two TrainJourney objects (that is, X to Y to Z).
+
+A simple traditional imperative method to link these train journeys is as follows:
+ ```java
+static TrainJourney link(TrainJourney a, TrainJourney b){
+    if (a==null) return b;
+    TrainJourney t = a;
+    while(t.onward != null){
+        t = t.onward;
+    }
+    t.onward = b;
+    return a;
+}
+ ```
+
+If you need a data structure to represent the result of a computation, you should make a new one and not mutate an existing data structure as done previously. This is often best practice in standard object-oriented programming too. 
+
+```java
+static TrainJourney append(TrainJourney a, TrainJourney b){
+    return a==null ? b : new TrainJourney(a.price, append(a.onward, b));
+}
+```
+This code is clearly functional style (it uses no mutation at all, even locally) and doesn’t modify any existing data structures.
+
+![](imgs/14fig02.jpg)
+![](imgs/14fig03_alt.jpg)
+
+### Another example with Trees
+
+Before leaving this topic, let’s consider another data structure—that of a binary search tree that might be used to implement a similar interface to a HashMap. The idea is that a Tree contains a String representing a key and an int representing its value, perhaps names and ages:
+
+```java
+
+class Tree {
+   private String key;
+   private int val;
+   private Tree left, right;
+   public Tree(String k, int v, Tree l, Tree r) {
+     key = k; val = v; left = l; right = r;
+   }
+}
+
+class TreeProcessor {
+    public static int lookup(String k, int defaultval, Tree t) {
+        if (t == null) return defaultval;
+        if (k.equals(t.key)) return t.val;
+        return lookup(k, defaultval,
+                         k.compareTo(t.key) < 0 ? t.left : t.right);
+    }
+    // other methods processing a Tree
+}
+
+```
+
+You want to make use of the binary search tree for looking up String values to produce an int. Now consider how you might update the value associated with a given key (for simplicity you’ll start by assuming the key is already present in the tree):
+
+```java
+public static Tree update(String k, int newval, Tree t) {
+    if (t == null)
+       t = new Tree(k, newval, null, null);
+    else if (k.equals(t.key))
+       t.val = newval;
+    else if (k.compareTo(t.key) < 0)
+       t.left = update(k, newval, t.left);
+    else
+       t.right = update(k, newval, t.right);
+    return t;
+}
+```
+
+Note that both versions of update once again mutate the existing Tree, meaning that all users of the map stored in the tree will see the mutation.
+
+So how might you do this functionally? You need to create a new node for the new key-value pair, but you also need to create         new nodes on the path from the root of the tree to the new node (in general this isn’t very expensive, if the tree is of depth         d and reasonably well balanced, then it can have 2d entries, so you re-create only a small fraction of it):
+
+```java
+public static Tree fupdate(String k, int newval, Tree t) {
+     return (t == null) ?
+         new Tree(k, newval, null, null) :
+          k.equals(t.key) ?
+            new Tree(k, newval, t.left, t.right) :
+       k.compareTo(t.key) < 0 ?
+         new Tree(t.key, t.val, fupdate(k,newval, t.left), t.right) :
+         new Tree(t.key, t.val, t.left, fupdate(k,newval, t.right));
+}
+```
+
+So what’s the difference between update and fupdate? We noted previously that the method update assumes every user wants to share the identical data structure and see updates caused by any part of the program. Hence it’s         vital (but often overlooked) in nonfunctional code that whenever you add some form of structured value to a tree, you copy         it, because, who knows, someone may later assume they can update it. By contrast, fupdate is purely functional. It creates a new Tree as a result but sharing as much as it can with its argument. Figure 14.4 illustrates this idea. You have a tree consisting of nodes storing a name and an age of a person. Calling fupdate doesn’t modify the existing tree but creates new nodes “living at the side of” the tree without harming the existing data         structure.
+
+![](imgs/14fig04.jpg)
+
+all users of persistent data structures to follow the do-not-mutate requirement. 
+
+Seen in these terms, fupdate can often be more efficient: the “no mutation of existing structure” rule allows structures that differ only slightly from each other (for example, the Tree seen by user A and the modified version seen by user B) to share storage for common parts of their structure. You can get         the compiler to help enforce this “no mutation of existing structure” rule by declaring fields key, val, left, and right of class Tree to be final; but remember that final protects only a field and not the object pointed to, which may need its own fields to be final to protect it, and so on.
+
+ In Java things are rather better than on a CD, in that old versions of the data structure that can no longer be used         will be garbage collected.
+
+ ## Your own lazy list
+
+ Java 8 streams are often described as lazy. They’re lazy in one particular aspect: a stream behaves like a black box that         can generate values on request. When you apply a sequence of operations to a stream, these are merely saved up. Only when         you apply a terminal operation to a stream is anything actually computed. This has the great advantage when you apply several operations (perhaps a filter and a map followed by a terminal operation reduce) to a stream; then the stream has to be traversed only once instead of for each operation.
+
+ Classic
+
+ ```java
+interface MyList<T> {
+    T head();
+
+    MyList<T> tail();
+
+    default boolean isEmpty() {
+        return true;
+    }
+}
+
+class MyLinkedList<T> implements MyList<T> {
+    private final T head;
+    private final MyList<T> tail;
+    public MyLinkedList(T head, MyList<T> tail) {
+        this.head = head;
+        this.tail = tail;
+    }
+
+    public T head() {
+        return head;
+    }
+
+    public MyList<T> tail() {
+        return tail;
+    }
+
+    public boolean isEmpty() {
+        return false;
+    }
+}
+
+class Empty<T> implements MyList<T> {
+
+    public T head() {
+        throw new UnsupportedOperationException();
+    }
+    public MyList<T> tail() {
+        throw new UnsupportedOperationException();
+    }
+}
+
+MyList<Integer> l =
+    new MyLinkedList<>(5, new MyLinkedList<>(10, new Empty<>()));
+```
+Functional style. The data is created on the fly and discard later.
+
+![](imgs/318fig01_alt.jpg)
+
+```java
+public static LazyList<Integer> from(int n) {
+    return new LazyList<Integer>(n, () -> from(n+1));
+}
+
+LazyList<Integer> numbers = from(2);
+int two = numbers.head();
+int three = numbers.tail().head();
+int four = numbers.tail().tail().head();
+
+System.out.println(two + " " + three + " " + four);
+```
+
+## PATTERN MATCHING
