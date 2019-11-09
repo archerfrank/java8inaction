@@ -1765,4 +1765,62 @@ int four = numbers.tail().tail().head();
 System.out.println(two + " " + three + " " + four);
 ```
 
-## PATTERN MATCHING
+## Objects vs. value types
+
+value types can reduce storage requirements because they don’t have reference identity. Figure illustrates an array of size three, whose elements 0, 1, and 2 are light gray, white, and dark gray, respectively. The left diagram shows a typical storage requirement when Pair and Complex are Objects and the right shows the better layout when Pair and Complex are value types (note that we called them pair and complex in lowercase in the diagram to emphasize their similarity to primitive types). Note also that value types are also likely to give better performance, not only for data access (multiple levels of pointer indirection replaced with a single indexed-addressing instruction) but also for hardware cache utilization (due to data contiguity).
+
+![](imgs/16fig01_alt.jpg)
+
+# library updates
+
+```java
+Map<String, Integer> carInventory = new HashMap<>();
+Integer count = 0;
+if(map.containsKey("Aston Martin")){
+  count = map.get("Aston Martin");
+}
+
+Integer count = map.getOrDefault("Aston Martin", 0);
+
+
+public String getData(String url){
+    return cache.computeIfAbsent(url, this::getData);
+}
+
+```
+
+![](imgs/363fig01.jpg)
+
+The replaceAll method replaces each element in a List with the result of applying a given operator to it. It’s similar to the map method in a stream, but it mutates the elements of the List. In contrast, the map method produces new elements.
+
+![](imgs/364fig01_alt.jpg)
+
+
+The Comparator interface now includes default and static methods. You used the Comparator.comparing static method in chapter 3 to return a Comparator object given a function that extracts the sorting key.
+
+New instance methods include the following:
+
+* reversed—Returns a Comparator with the reverse ordering of the current Comparator.
+* thenComparing—Returns a Comparator that uses another Comparator when two objects are equal.
+* thenComparingInt, thenComparingDouble, thenComparingLong—Work like the thenComparing method but take a function specialized for primitive types (respectively, ToIntFunction, ToDoubleFunction, and ToLongFunction).
+
+New static methods include these:
+
+* comparingInt, comparingDouble, comparingLong—Work like the comparing method but take a function specialized for primitive types (respectively ToIntFunction, ToDoubleFunction, and ToLongFunction).
+* naturalOrder—Returns a Comparator object that imposes a natural order on Comparable objects.
+* nullsFirst, nullsLast—Return a Comparator object that considers null to be less than non-null or greater than non-null.
+* reverseOrder—Equivalent to naturalOrder().reversed().
+
+## CONCURRENCY
+
+The Java API recommends using the new classes LongAdder, LongAccumulator, Double-Adder, and DoubleAccumulator instead of the Atomic classes equivalent when multiple threads update frequently but read less frequently (for example, in the context of statistics). These classes are designed to grow dynamically to reduce thread contention.
+
+The classes LongAdder and DoubleAdder support operations for additions, whereas LongAccumulator and DoubleAccumulator are given a function to combine values. For example, to calculate the sum of several values, you can use a LongAdder as follows.
+
+![](imgs/365fig01_alt.jpg)
+
+![](imgs/366fig01_alt.jpg)
+
+## HashMap
+
+ConcurrentHashMap’s internal structure was updated to improve performance. Entries of a map are typically stored in buckets accessed by the         generated hashcode of the key. But if many keys return the same hashcode, performance will deteriorate because buckets are         implemented as Lists with O(n) retrieval. In Java 8, when the buckets become too big, they’re dynamically replaced with sorted trees, which have O(log(n)) retrieval. Note that this is possible only when the keys are Comparable (for example, String or Number classes).
